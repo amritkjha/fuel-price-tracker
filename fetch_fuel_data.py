@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
 import os
+import re # Import regex for more robust price extraction
 
 # Define the CSV file where fuel price data will be stored
 FUEL_DATA_FILE = 'fuel_prices.csv'
@@ -15,7 +16,11 @@ def fetch_and_save_data():
     """
     url = 'https://www.goodreturns.in/petrol-price.html' # Reliable source for Indian fuel prices
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
     }
 
     try:
@@ -24,42 +29,47 @@ def fetch_and_save_data():
         response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # --- Extract prices for New Delhi ---
-        # These selectors are based on the structure of goodreturns.in as of July 2025.
-        # **IMPORTANT:** These selectors may change if the website updates its structure.
-        # You might need to inspect the page manually using browser developer tools
-        # (right-click -> Inspect) to find the correct `<td>` elements or classes.
-
-        # Find the row for New Delhi. Assuming the city name is in a <td> tag.
-        # Then navigate to its siblings to find petrol and diesel prices.
+        # --- Updated Extract prices for New Delhi ---
+        # The structure on goodreturns.in often involves tables.
+        # We'll look for the table that contains city-wise prices and then find New Delhi's row.
         
-        delhi_row = None
-        # Look for the table that contains city-wise prices
-        # This might require finding a specific table or a parent div
-        tables = soup.find_all('table')
-        for table in tables:
-            if "New Delhi" in table.get_text(): # Simple check to find the right table
-                for row in table.find_all('tr'):
-                    cells = row.find_all('td')
-                    if cells and cells[0].get_text(strip=True) == 'New Delhi':
-                        delhi_row = cells
-                        break
-            if delhi_row:
-                break
-
         petrol_price = 0.0
         diesel_price = 0.0
+        
+        # Find the table containing "Petrol Price in Indian Metro Cities & State Capitals"
+        # This might be identified by a specific heading or a class on the table/parent div.
+        # Let's assume it's the first table after a certain heading or a specific class.
+        
+        # A more robust way: find the heading first, then look for the next table
+        target_heading = soup.find('h2', text=re.compile(r'Petrol Price in Indian Metro Cities & State Capitals', re.IGNORECASE))
+        price_table = None
+        if target_heading:
+            price_table = target_heading.find_next('table')
+        
+        if price_table:
+            # Find all rows in the table body
+            rows = price_table.find_all('tr')
+            for row in rows:
+                cells = row.find_all('td')
+                if cells and len(cells) > 0:
+                    city_name = cells[0].get_text(strip=True)
+                    if city_name == 'New Delhi':
+                        # Assuming structure: City | Price | Change | City | Price | Change
+                        # Petrol price is usually the 2nd cell, Diesel is the 4th cell.
+                        if len(cells) >= 2: # Petrol price cell
+                            petrol_price_str = cells[1].get_text(strip=True).replace('₹', '').split(' ')[0].strip()
+                            petrol_price = float(petrol_price_str)
+                        if len(cells) >= 4: # Diesel price cell
+                            diesel_price_str = cells[3].get_text(strip=True).replace('₹', '').split(' ')[0].strip()
+                            diesel_price = float(diesel_price_str)
+                        break # Found New Delhi, exit loop
+            
+            if petrol_price == 0.0 and diesel_price == 0.0:
+                print("Could not find New Delhi prices in the expected table structure.")
+                return
 
-        if delhi_row and len(delhi_row) >= 4: # Assuming at least 4 columns: City, Petrol Price, Change, Diesel Price
-            # Petrol price is typically the second column (index 1)
-            petrol_price_str = delhi_row[1].get_text(strip=True).replace('₹', '').strip()
-            petrol_price = float(petrol_price_str)
-
-            # Diesel price is typically the fourth column (index 3)
-            diesel_price_str = delhi_row[3].get_text(strip=True).replace('₹', '').strip()
-            diesel_price = float(diesel_price_str)
         else:
-            print("Could not find New Delhi prices or table structure changed.")
+            print("Could not find the main fuel price table on the page.")
             return
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -96,7 +106,7 @@ def fetch_and_save_data():
     except AttributeError:
         print("Scraping selectors might be outdated or data not found. Please check the website's HTML structure.")
     except ValueError as e:
-        print(f"Error converting price to float: {e}. Data might be malformed.")
+        print(f"Error converting price to float: {e}. Data might be malformed or not found.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
