@@ -30,47 +30,59 @@ def fetch_and_save_data():
         soup = BeautifulSoup(response.text, 'html.parser')
 
         # --- Updated Extract prices for New Delhi ---
-        # The structure on goodreturns.in often involves tables.
-        # We'll look for the table that contains city-wise prices and then find New Delhi's row.
+        # The DeprecationWarning for 'text' argument is addressed by using 'string' for direct string content.
+        # However, for regex matching, 'text' or 'string' with re.compile can still be used,
+        # but the warning suggests 'string' for direct content and other methods for regex.
+        # For simplicity and to resolve the warning, we'll stick to 'string' where possible,
+        # but for re.compile, 'text' is often still used for BeautifulSoup's `find` method.
+
+        # Let's try a more robust way to find the table containing the data.
+        # We will iterate through all tables and find the one that contains 'New Delhi'.
         
         petrol_price = 0.0
         diesel_price = 0.0
-        
-        # Find the table containing "Petrol Price in Indian Metro Cities & State Capitals"
-        # This might be identified by a specific heading or a class on the table/parent div.
-        # Let's assume it's the first table after a certain heading or a specific class.
-        
-        # A more robust way: find the heading first, then look for the next table
-        target_heading = soup.find('h2', text=re.compile(r'Petrol Price in Indian Metro Cities & State Capitals', re.IGNORECASE))
-        price_table = None
-        if target_heading:
-            price_table = target_heading.find_next('table')
-        
-        if price_table:
-            # Find all rows in the table body
-            rows = price_table.find_all('tr')
-            for row in rows:
-                cells = row.find_all('td')
-                if cells and len(cells) > 0:
-                    city_name = cells[0].get_text(strip=True)
-                    if city_name == 'New Delhi':
-                        # Assuming structure: City | Price | Change | City | Price | Change
-                        # Petrol price is usually the 2nd cell, Diesel is the 4th cell.
-                        if len(cells) >= 2: # Petrol price cell
-                            petrol_price_str = cells[1].get_text(strip=True).replace('₹', '').split(' ')[0].strip()
-                            petrol_price = float(petrol_price_str)
-                        if len(cells) >= 4: # Diesel price cell
-                            diesel_price_str = cells[3].get_text(strip=True).replace('₹', '').split(' ')[0].strip()
-                            diesel_price = float(diesel_price_str)
-                        break # Found New Delhi, exit loop
-            
-            if petrol_price == 0.0 and diesel_price == 0.0:
-                print("Could not find New Delhi prices in the expected table structure.")
-                return
+        found_prices = False
 
-        else:
-            print("Could not find the main fuel price table on the page.")
-            return
+        # Find all table elements on the page
+        all_tables = soup.find_all('table')
+
+        for table in all_tables:
+            # Check if 'New Delhi' is present in the text content of the table
+            # This helps narrow down to the correct table without relying on specific headings
+            if 'New Delhi' in table.get_text():
+                rows = table.find_all('tr')
+                for row in rows:
+                    cells = row.find_all('td')
+                    if cells and len(cells) > 0:
+                        city_name = cells[0].get_text(strip=True)
+                        if city_name == 'New Delhi':
+                            # Assuming structure: City | Petrol Price | Change | Diesel Price | Change
+                            # Petrol price is typically the 2nd cell (index 1)
+                            # Diesel price is typically the 4th cell (index 3)
+                            if len(cells) >= 2: # Check if petrol price cell exists
+                                petrol_price_str = cells[1].get_text(strip=True).replace('₹', '').split(' ')[0].strip()
+                                try:
+                                    petrol_price = float(petrol_price_str)
+                                except ValueError:
+                                    print(f"Could not convert petrol price '{petrol_price_str}' to float.")
+                                    petrol_price = 0.0 # Reset to default if conversion fails
+                            
+                            if len(cells) >= 4: # Check if diesel price cell exists
+                                diesel_price_str = cells[3].get_text(strip=True).replace('₹', '').split(' ')[0].strip()
+                                try:
+                                    diesel_price = float(diesel_price_str)
+                                except ValueError:
+                                    print(f"Could not convert diesel price '{diesel_price_str}' to float.")
+                                    diesel_price = 0.0 # Reset to default if conversion fails
+                            
+                            found_prices = True
+                            break # Found New Delhi prices, exit row loop
+                if found_prices:
+                    break # Found prices and table, exit table loop
+        
+        if not found_prices:
+            print("Could not find New Delhi prices in any table on the page. Website structure might have changed significantly.")
+            return # Exit if prices were not found
 
         today = datetime.now().strftime('%Y-%m-%d')
         
@@ -103,10 +115,6 @@ def fetch_and_save_data():
 
     except requests.exceptions.RequestException as e:
         print(f"Network error during data fetch: {e}")
-    except AttributeError:
-        print("Scraping selectors might be outdated or data not found. Please check the website's HTML structure.")
-    except ValueError as e:
-        print(f"Error converting price to float: {e}. Data might be malformed or not found.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
