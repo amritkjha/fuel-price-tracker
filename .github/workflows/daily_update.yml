@@ -11,6 +11,8 @@ on:
 jobs:
   update_data:
     runs-on: ubuntu-latest # The type of runner that the job will run on
+    permissions:
+      contents: write # Grant write permission to the GITHUB_TOKEN for this job
 
     steps:
     - name: Checkout repository # Step to get your code from the repository
