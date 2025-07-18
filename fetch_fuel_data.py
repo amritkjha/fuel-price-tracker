@@ -31,16 +31,25 @@ def fetch_and_save_data():
         petrol_price = 0.0
         diesel_price = 0.0
         
-        # --- Robust Strategy for cardekho.com/fuel-price (based on provided HTML & live site) ---
-        # The prices are within tables, which are siblings to <h2> headings.
+        # --- Robust Strategy for cardekho.com/fuel-price (based on the provided HTML) ---
+        # The main content is within <div class="overviewWrap">
+        # Inside that, <div class="contentHold gsc_row"> contains the fuel type sections.
+        # Each fuel type section is a <div data-track-section="FuelType">
+
+        # Find the main content holder
+        content_hold_div = soup.find('div', class_='contentHold gsc_row')
+
+        if not content_hold_div:
+            print("Error: Could not find the main 'contentHold gsc_row' div.")
+            return
 
         # 1. Find Petrol Price
-        # Find the <h2> tag for Petrol prices
-        petrol_heading = soup.find('h2', string=re.compile(r'Petrol Price In India', re.IGNORECASE))
+        # Locate the div for Petrol prices using its data-track-section attribute
+        petrol_section_div = content_hold_div.find('div', attrs={'data-track-section': 'Petrol'})
         petrol_table = None
-        if petrol_heading:
-            # The table is the next sibling div with class 'table marginTop20'
-            petrol_table_div = petrol_heading.find_next_sibling('div', class_='table marginTop20')
+        if petrol_section_div:
+            # Find the table within this petrol section
+            petrol_table_div = petrol_section_div.find('div', class_='table marginTop20')
             if petrol_table_div:
                 petrol_table = petrol_table_div.find('table') # Get the actual table tag
 
@@ -61,16 +70,16 @@ def fetch_and_save_data():
                             print(f"Could not convert petrol price '{price_text}' to float for Delhi.")
                         break # Found petrol price, exit loop
         else:
-            print("Petrol price table or its heading not found.")
+            print("Petrol price table or its section not found.")
 
 
         # 2. Find Diesel Price
-        # Find the <h2> tag for Diesel prices
-        diesel_heading = soup.find('h2', string=re.compile(r'Diesel Price In India', re.IGNORECASE))
+        # Locate the div for Diesel prices using its data-track-section attribute
+        diesel_section_div = content_hold_div.find('div', attrs={'data-track-section': 'Diesel'})
         diesel_table = None
-        if diesel_heading:
-            # The table is the next sibling div with class 'table marginTop20'
-            diesel_table_div = diesel_heading.find_next_sibling('div', class_='table marginTop20')
+        if diesel_section_div:
+            # Find the table within this diesel section
+            diesel_table_div = diesel_section_div.find('div', class_='table marginTop20')
             if diesel_table_div:
                 diesel_table = diesel_table_div.find('table') # Get the actual table tag
 
@@ -89,7 +98,7 @@ def fetch_and_save_data():
                             print(f"Could not convert diesel price '{price_text}' to float for Delhi.")
                         break # Found diesel price, exit loop
         else:
-            print("Diesel price table or its heading not found.")
+            print("Diesel price table or its section not found.")
 
 
         # Check if at least one price was successfully found
