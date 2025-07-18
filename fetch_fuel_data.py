@@ -11,10 +11,11 @@ FUEL_DATA_FILE = 'fuel_prices.csv'
 
 def fetch_and_save_data():
     """
-    Fetches daily petrol and diesel prices for New Delhi from Goodreturns.in,
+    Fetches daily petrol and diesel prices for New Delhi from mypetrolprice.com,
     parses them, and appends them to a CSV file.
     """
-    url = 'https://www.goodreturns.in/petrol-price.html' # Reliable source for Indian fuel prices
+    # Changed URL to mypetrolprice.com for potentially easier static scraping
+    url = 'https://www.mypetrolprice.com/' 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
@@ -29,59 +30,47 @@ def fetch_and_save_data():
         response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # --- Updated Extract prices for New Delhi ---
-        # The DeprecationWarning for 'text' argument is addressed by using 'string' for direct string content.
-        # However, for regex matching, 'text' or 'string' with re.compile can still be used,
-        # but the warning suggests 'string' for direct content and other methods for regex.
-        # For simplicity and to resolve the warning, we'll stick to 'string' where possible,
-        # but for re.compile, 'text' is often still used for BeautifulSoup's `find` method.
+        # --- Extract prices for New Delhi from mypetrolprice.com ---
+        # Based on inspection of mypetrolprice.com, prices for major cities are often
+        # in specific list items or divs. We'll try to locate the "Delhi" entry.
 
-        # Let's try a more robust way to find the table containing the data.
-        # We will iterate through all tables and find the one that contains 'New Delhi'.
-        
         petrol_price = 0.0
         diesel_price = 0.0
         found_prices = False
 
-        # Find all table elements on the page
-        all_tables = soup.find_all('table')
+        # Find the main container for petrol prices
+        petrol_block = soup.find('div', class_='fuel-price-card', string=re.compile(r'Petrol Prices', re.IGNORECASE))
+        if petrol_block:
+            # Look for the specific list item or div containing Delhi's petrol price
+            # This selector needs to be precise based on the actual HTML
+            delhi_petrol_entry = petrol_block.find('li', string=re.compile(r'Delhi', re.IGNORECASE))
+            if delhi_petrol_entry:
+                # Extract price using regex, as it might be mixed with other text/symbols
+                price_match = re.search(r'₹\s*([\d.]+)', delhi_petrol_entry.get_text(strip=True))
+                if price_match:
+                    try:
+                        petrol_price = float(price_match.group(1))
+                        found_prices = True
+                    except ValueError:
+                        print(f"Could not convert petrol price '{price_match.group(1)}' to float.")
 
-        for table in all_tables:
-            # Check if 'New Delhi' is present in the text content of the table
-            # This helps narrow down to the correct table without relying on specific headings
-            if 'New Delhi' in table.get_text():
-                rows = table.find_all('tr')
-                for row in rows:
-                    cells = row.find_all('td')
-                    if cells and len(cells) > 0:
-                        city_name = cells[0].get_text(strip=True)
-                        if city_name == 'New Delhi':
-                            # Assuming structure: City | Petrol Price | Change | Diesel Price | Change
-                            # Petrol price is typically the 2nd cell (index 1)
-                            # Diesel price is typically the 4th cell (index 3)
-                            if len(cells) >= 2: # Check if petrol price cell exists
-                                petrol_price_str = cells[1].get_text(strip=True).replace('₹', '').split(' ')[0].strip()
-                                try:
-                                    petrol_price = float(petrol_price_str)
-                                except ValueError:
-                                    print(f"Could not convert petrol price '{petrol_price_str}' to float.")
-                                    petrol_price = 0.0 # Reset to default if conversion fails
-                            
-                            if len(cells) >= 4: # Check if diesel price cell exists
-                                diesel_price_str = cells[3].get_text(strip=True).replace('₹', '').split(' ')[0].strip()
-                                try:
-                                    diesel_price = float(diesel_price_str)
-                                except ValueError:
-                                    print(f"Could not convert diesel price '{diesel_price_str}' to float.")
-                                    diesel_price = 0.0 # Reset to default if conversion fails
-                            
-                            found_prices = True
-                            break # Found New Delhi prices, exit row loop
-                if found_prices:
-                    break # Found prices and table, exit table loop
+        # Find the main container for diesel prices
+        diesel_block = soup.find('div', class_='fuel-price-card', string=re.compile(r'Diesel Prices', re.IGNORECASE))
+        if diesel_block:
+            # Look for the specific list item or div containing Delhi's diesel price
+            delhi_diesel_entry = diesel_block.find('li', string=re.compile(r'Delhi', re.IGNORECASE))
+            if delhi_diesel_entry:
+                # Extract price using regex
+                price_match = re.search(r'₹\s*([\d.]+)', delhi_diesel_entry.get_text(strip=True))
+                if price_match:
+                    try:
+                        diesel_price = float(price_match.group(1))
+                        found_prices = True # Set to True if at least one price is found
+                    except ValueError:
+                        print(f"Could not convert diesel price '{price_match.group(1)}' to float.")
         
         if not found_prices:
-            print("Could not find New Delhi prices in any table on the page. Website structure might have changed significantly.")
+            print("Could not find New Delhi prices on mypetrolprice.com. Website structure might have changed or data not present.")
             return # Exit if prices were not found
 
         today = datetime.now().strftime('%Y-%m-%d')
