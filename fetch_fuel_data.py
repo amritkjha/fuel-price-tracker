@@ -30,80 +30,87 @@ def fetch_and_save_data():
 
         petrol_price = 0.0
         diesel_price = 0.0
-        found_petrol = False
-        found_diesel = False
-
-        # --- Strategy for cardekho.com/fuel-price ---
-        # Based on inspection, prices are often found within specific tables or divs
-        # that list prices for major cities. We'll look for a table or a div
-        # that contains city-wise data.
-
-        # Cardekho's fuel price page often lists major cities directly.
-        # We'll try to find the specific elements for "Delhi".
         
-        # Look for the main container that holds the fuel price cards for cities.
-        # This might be a div with a class like 'fuel-price-cities' or similar.
-        # Then, find the specific card for 'Delhi'.
+        # --- Robust Strategy for cardekho.com/fuel-price ---
+        # The website uses 'fuel-price-widget' divs, one for Petrol and one for Diesel.
+        # Inside each, there's a 'table marginTop20' div containing the actual table.
 
-        # Example selector based on common patterns for such sites:
-        # Find the div containing city-wise price cards
-        city_price_container = soup.find('div', class_='gsc_col-md-12') # This is a common large container
-        
-        if city_price_container:
-            # Within this container, look for individual city price cards/rows
-            # These might be divs with classes like 'fuel-price-card-item' or 'fuel-price-city-row'
-            # Or, they might be directly in a table. Let's try finding the "Delhi" row.
-            
-            # Search for the specific city block for Delhi
-            # Cardekho often uses `div` elements with class `fuel-price-widget` or similar
-            # and then `li` elements for each city.
-            
-            # Let's try to find the specific city name and then its price siblings.
-            # The structure might be:
-            # <div class="city-name-class">Delhi</div>
-            # <div class="petrol-price-class">₹XX.YY</div>
-            # <div class="diesel-price-class">₹XX.YY</div>
+        # 1. Find Petrol Price
+        # Locate the div that specifically contains Petrol prices
+        petrol_widget = None
+        all_fuel_widgets = soup.find_all('div', class_='fuel-price-widget')
+        for widget in all_fuel_widgets:
+            if widget.find('h2', string=re.compile(r'Petrol Price In India', re.IGNORECASE)):
+                petrol_widget = widget
+                break
 
-            # A common pattern is to have a list of cities with their prices.
-            # We'll look for the specific city name and then its associated prices.
+        if petrol_widget:
+            # Find the table within the petrol widget
+            petrol_table_div = petrol_widget.find('div', class_='table marginTop20')
+            if petrol_table_div:
+                petrol_table = petrol_table_div.find('table')
+                if petrol_table:
+                    # Find the row containing 'New Delhi'
+                    for row in petrol_table.find_all('tr'):
+                        # The city name is inside an <a> tag within a <td>
+                        city_cell = row.find('td')
+                        if city_cell and city_cell.find('a', string='New Delhi'):
+                            # The price is in the next sibling <td>
+                            price_cell = city_cell.find_next_sibling('td')
+                            if price_cell:
+                                price_text = price_cell.get_text(strip=True).replace('₹', '').strip()
+                                try:
+                                    petrol_price = float(price_text)
+                                    print(f"Found Petrol Price for New Delhi: {petrol_price}")
+                                except ValueError:
+                                    print(f"Could not convert petrol price '{price_text}' to float for Delhi.")
+                                break # Found petrol price, exit loop
+                else:
+                    print("Petrol price table not found within its container.")
+            else:
+                print("Petrol table container 'table marginTop20' not found.")
+        else:
+            print("Petrol widget 'fuel-price-widget' not found.")
 
-            # Find the main table or list that contains the city prices
-            # On cardekho, it seems prices are displayed in a structured way, often in tables or lists.
-            # Let's try to find the specific elements for Delhi.
 
-            # Attempt to find the row/div for Delhi
-            # This is a common pattern: find an element with specific text, then navigate its siblings/parents
-            
-            # Find the 'New Delhi' city name within a <span> or <div>
-            delhi_petrol_span = soup.find('span', text=re.compile(r'Delhi Petrol Price', re.IGNORECASE))
-            delhi_diesel_span = soup.find('span', text=re.compile(r'Delhi Diesel Price', re.IGNORECASE))
+        # 2. Find Diesel Price
+        # Locate the div that specifically contains Diesel prices
+        diesel_widget = None
+        for widget in all_fuel_widgets: # Re-use all_fuel_widgets found earlier
+            if widget.find('h2', string=re.compile(r'Diesel Price In India', re.IGNORECASE)):
+                diesel_widget = widget
+                break
 
-            if delhi_petrol_span:
-                # Assuming the price is in a sibling element or a child of a common parent
-                # This needs careful inspection. Let's assume price is in a <b> tag next to it.
-                price_element = delhi_petrol_span.find_next_sibling('b')
-                if price_element:
-                    price_match = re.search(r'([\d.]+)', price_element.get_text(strip=True))
-                    if price_match:
-                        try:
-                            petrol_price = float(price_match.group(1))
-                            found_petrol = True
-                        except ValueError:
-                            print(f"Could not convert petrol price '{price_match.group(1)}' to float for Delhi.")
-            
-            if delhi_diesel_span:
-                price_element = delhi_diesel_span.find_next_sibling('b')
-                if price_element:
-                    price_match = re.search(r'([\d.]+)', price_element.get_text(strip=True))
-                    if price_match:
-                        try:
-                            diesel_price = float(price_match.group(1))
-                            found_diesel = True
-                        except ValueError:
-                            print(f"Could not convert diesel price '{price_match.group(1)}' to float for Delhi.")
+        if diesel_widget:
+            # Find the table within the diesel widget
+            diesel_table_div = diesel_widget.find('div', class_='table marginTop20')
+            if diesel_table_div:
+                diesel_table = diesel_table_div.find('table')
+                if diesel_table:
+                    # Find the row containing 'New Delhi'
+                    for row in diesel_table.find_all('tr'):
+                        city_cell = row.find('td')
+                        if city_cell and city_cell.find('a', string='New Delhi'):
+                            price_cell = city_cell.find_next_sibling('td')
+                            if price_cell:
+                                price_text = price_cell.get_text(strip=True).replace('₹', '').strip()
+                                try:
+                                    diesel_price = float(price_text)
+                                    print(f"Found Diesel Price for New Delhi: {diesel_price}")
+                                except ValueError:
+                                    print(f"Could not convert diesel price '{price_text}' to float for Delhi.")
+                                break # Found diesel price, exit loop
+                else:
+                    print("Diesel price table not found within its container.")
+            else:
+                print("Diesel table container 'table marginTop20' not found.")
+        else:
+            print("Diesel widget 'fuel-price-widget' not found.")
 
-        if not (found_petrol or found_diesel):
-            print("Could not find New Delhi prices on cardekho.com. Website structure might have changed or data not present.")
+
+        # Check if at least one price was successfully found
+        if petrol_price == 0.0 and diesel_price == 0.0:
+            print("Could not find any fuel prices for New Delhi on cardekho.com. Website structure might have changed or data not present.")
             return 
 
         today = datetime.now().strftime('%Y-%m-%d')
