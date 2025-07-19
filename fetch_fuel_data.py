@@ -142,18 +142,43 @@ def try_selenium_scraping():
         for element in elements:
             parent = element.parent
             if parent:
+                # Look at the parent and surrounding elements for prices
                 parent_text = parent.get_text(strip=True)
-                price_matches = re.findall(r'₹\s*(\d+\.?\d*)', parent_text)
                 
-                if price_matches and 'delhi' in parent_text.lower():
-                    price = float(price_matches[0])
-                    
-                    if 'petrol' in parent_text.lower() and petrol_price is None:
-                        petrol_price = price
-                        print(f"Found petrol price with Selenium: ₹{price}")
-                    elif 'diesel' in parent_text.lower() and diesel_price is None:
-                        diesel_price = price
-                        print(f"Found diesel price with Selenium: ₹{price}")
+                # Also check siblings and nearby elements
+                extended_text = parent_text
+                if parent.parent:
+                    extended_text = parent.parent.get_text(strip=True)
+                
+                price_matches = re.findall(r'₹\s*(\d+\.?\d*)', extended_text)
+                
+                if price_matches and 'delhi' in extended_text.lower():
+                    # If we find multiple prices in the same section, likely petrol and diesel
+                    if len(price_matches) >= 2:
+                        if petrol_price is None:
+                            petrol_price = float(price_matches[0])
+                            print(f"Found petrol price with Selenium: ₹{petrol_price}")
+                        if diesel_price is None:
+                            diesel_price = float(price_matches[1])
+                            print(f"Found diesel price with Selenium: ₹{diesel_price}")
+                    else:
+                        # Single price - determine type by context
+                        price = float(price_matches[0])
+                        
+                        if 'petrol' in extended_text.lower() and petrol_price is None:
+                            petrol_price = price
+                            print(f"Found petrol price with Selenium: ₹{price}")
+                        elif 'diesel' in extended_text.lower() and diesel_price is None:
+                            diesel_price = price
+                            print(f"Found diesel price with Selenium: ₹{price}")
+                        elif petrol_price is None:
+                            # Assume first price found is petrol if no context
+                            petrol_price = price
+                            print(f"Found petrol price with Selenium (assumed): ₹{price}")
+                        elif diesel_price is None:
+                            # Assume second price found is diesel if no context
+                            diesel_price = price
+                            print(f"Found diesel price with Selenium (assumed): ₹{price}")
         
         return petrol_price, diesel_price
         
@@ -209,14 +234,24 @@ def fetch_and_save_data():
     ])
     
     if os.path.exists(FUEL_DATA_FILE):
-        existing_data = pd.read_csv(FUEL_DATA_FILE)
-        existing_data['Date'] = pd.to_datetime(existing_data['Date'])
-        
-        if not existing_data[(existing_data['Date'] == pd.to_datetime(today)) & (existing_data['City'] == 'New Delhi')].empty:
-            print(f"Data for {today} in New Delhi already exists. Skipping update.")
-            return
-        
-        updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+        try:
+            existing_data = pd.read_csv(FUEL_DATA_FILE)
+            # Check if the CSV file is empty or corrupted
+            if existing_data.empty or len(existing_data.columns) == 0:
+                print("Existing CSV file is empty or corrupted, creating new one.")
+                updated_data = new_data
+            else:
+                existing_data['Date'] = pd.to_datetime(existing_data['Date'])
+                
+                if not existing_data[(existing_data['Date'] == pd.to_datetime(today)) & (existing_data['City'] == 'New Delhi')].empty:
+                    print(f"Data for {today} in New Delhi already exists. Skipping update.")
+                    return
+                
+                updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+        except (pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+            print(f"Error reading existing CSV file: {e}")
+            print("Creating new CSV file.")
+            updated_data = new_data
     else:
         updated_data = new_data
     
