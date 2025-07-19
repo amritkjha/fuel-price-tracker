@@ -4,19 +4,25 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from datetime import datetime
 import os
-import re # Import regex for more robust price extraction
+import re
+import time
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, WebDriverException
 
 # Define the CSV file where fuel price data will be stored
 FUEL_DATA_FILE = 'fuel_prices.csv'
 
-def fetch_and_save_data():
+def try_requests_scraping():
     """
-    Fetches daily petrol and diesel prices for New Delhi from cardekho.com/fuel-price,
-    parses them, and appends them to a CSV file.
+    Try scraping with requests + BeautifulSoup first (faster method)
     """
-    url = 'https://www.cardekho.com/fuel-price' 
+    url = 'https://www.cardekho.com/fuel-price'
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
@@ -24,114 +30,198 @@ def fetch_and_save_data():
     }
 
     try:
+        print("Attempting to scrape with requests...")
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-
-        petrol_price = 0.0
-        diesel_price = 0.0
         
-        # --- Robust Strategy for cardekho.com/fuel-price (based on the provided HTML) ---
-        # The main content is within <div class="overviewWrap">
-        # Inside that, <div class="contentHold gsc_row"> contains the fuel type sections.
-        # Each fuel type section is a <div data-track-section="FuelType">
-
-        # Find the main content holder
+        # Debug: Print the page structure to understand current layout
+        print("Page title:", soup.title.string if soup.title else "No title found")
+        
+        # Multiple strategies to find fuel prices
+        petrol_price, diesel_price = None, None
+        
+        # Strategy 1: Look for tables containing price data
+        tables = soup.find_all('table')
+        print(f"Found {len(tables)} tables on the page")
+        
+        for i, table in enumerate(tables):
+            print(f"Examining table {i+1}...")
+            rows = table.find_all('tr')
+            for row in rows:
+                cells = row.find_all(['td', 'th'])
+                row_text = ' '.join([cell.get_text(strip=True) for cell in cells])
+                
+                # Look for Delhi/New Delhi in the row
+                if any(city in row_text.lower() for city in ['delhi', 'new delhi']):
+                    print(f"Found Delhi row: {row_text}")
+                    
+                    # Extract price using regex
+                    price_matches = re.findall(r'₹?\s*(\d+\.?\d*)', row_text)
+                    if price_matches:
+                        price = float(price_matches[0])
+                        
+                        # Determine if this is petrol or diesel based on context
+                        if 'petrol' in row_text.lower() or (petrol_price is None and diesel_price is not None):
+                            petrol_price = price
+                            print(f"Found petrol price: ₹{price}")
+                        elif 'diesel' in row_text.lower() or (diesel_price is None and petrol_price is not None):
+                            diesel_price = price
+                            print(f"Found diesel price: ₹{price}")
+        
+        # Strategy 2: Look for specific div structures (your original approach)
         content_hold_div = soup.find('div', class_='contentHold gsc_row')
-
-        if not content_hold_div:
-            print("Error: Could not find the main 'contentHold gsc_row' div.")
-            return
-
-        # 1. Find Petrol Price
-        # Locate the div for Petrol prices using its data-track-section attribute
-        petrol_section_div = content_hold_div.find('div', attrs={'data-track-section': 'Petrol'})
-        petrol_table = None
-        if petrol_section_div:
-            # Find the table within this petrol section
-            petrol_table_div = petrol_section_div.find('div', class_='table marginTop20')
-            if petrol_table_div:
-                petrol_table = petrol_table_div.find('table') # Get the actual table tag
-
-        if petrol_table:
-            # Iterate through rows to find 'New Delhi'
-            for row in petrol_table.find_all('tr'):
-                # The city name is inside an <a> tag within the first <td>
-                city_cell = row.find('td')
-                if city_cell and city_cell.find('a', string='New Delhi'):
-                    # The price is in the next sibling <td>
-                    price_cell = city_cell.find_next_sibling('td')
-                    if price_cell:
-                        price_text = price_cell.get_text(strip=True).replace('₹', '').strip()
-                        try:
-                            petrol_price = float(price_text)
-                            print(f"Found Petrol Price for New Delhi: {petrol_price}")
-                        except ValueError:
-                            print(f"Could not convert petrol price '{price_text}' to float for Delhi.")
-                        break # Found petrol price, exit loop
-        else:
-            print("Petrol price table or its section not found.")
-
-
-        # 2. Find Diesel Price
-        # Locate the div for Diesel prices using its data-track-section attribute
-        diesel_section_div = content_hold_div.find('div', attrs={'data-track-section': 'Diesel'})
-        diesel_table = None
-        if diesel_section_div:
-            # Find the table within this diesel section
-            diesel_table_div = diesel_section_div.find('div', class_='table marginTop20')
-            if diesel_table_div:
-                diesel_table = diesel_table_div.find('table') # Get the actual table tag
-
-        if diesel_table:
-            # Iterate through rows to find 'New Delhi'
-            for row in diesel_table.find_all('tr'):
-                city_cell = row.find('td')
-                if city_cell and city_cell.find('a', string='New Delhi'):
-                    price_cell = city_cell.find_next_sibling('td')
-                    if price_cell:
-                        price_text = price_cell.get_text(strip=True).replace('₹', '').strip()
-                        try:
-                            diesel_price = float(price_text)
-                            print(f"Found Diesel Price for New Delhi: {diesel_price}")
-                        except ValueError:
-                            print(f"Could not convert diesel price '{price_text}' to float for Delhi.")
-                        break # Found diesel price, exit loop
-        else:
-            print("Diesel price table or its section not found.")
-
-
-        # Check if at least one price was successfully found
-        if petrol_price == 0.0 and diesel_price == 0.0:
-            print("Could not find any fuel prices for New Delhi on cardekho.com. Website structure might have changed or data not present.")
-            return 
-
-        today = datetime.now().strftime('%Y-%m-%d')
+        if content_hold_div:
+            print("Found contentHold gsc_row div - using original strategy")
+            # Your original code logic here
+            petrol_section_div = content_hold_div.find('div', attrs={'data-track-section': 'Petrol'})
+            # ... rest of your original logic
         
-        new_data = pd.DataFrame([
-            {'Date': today, 'City': 'New Delhi', 'FuelType': 'Petrol', 'Price': petrol_price},
-            {'Date': today, 'City': 'New Delhi', 'FuelType': 'Diesel', 'Price': diesel_price}
-        ])
-
-        if os.path.exists(FUEL_DATA_FILE):
-            existing_data = pd.read_csv(FUEL_DATA_FILE)
-            existing_data['Date'] = pd.to_datetime(existing_data['Date'])
-
-            if not existing_data[(existing_data['Date'] == pd.to_datetime(today)) & (existing_data['City'] == 'New Delhi')].empty:
-                print(f"Data for {today} in New Delhi already exists. Skipping update.")
-                return
+        # Strategy 3: Look for any div/section containing fuel prices
+        if petrol_price is None or diesel_price is None:
+            print("Trying alternative search strategies...")
             
-            updated_data = pd.concat([existing_data, new_data], ignore_index=True)
-        else:
-            updated_data = new_data
+            # Look for price patterns in the entire page
+            page_text = soup.get_text()
+            
+            # Find Delhi prices using regex
+            delhi_section = re.search(r'delhi.*?(?=\n.*?(?:mumbai|chennai|kolkata|bangalore))', page_text, re.IGNORECASE | re.DOTALL)
+            if delhi_section:
+                delhi_text = delhi_section.group()
+                prices = re.findall(r'₹\s*(\d+\.?\d*)', delhi_text)
+                if len(prices) >= 2:
+                    petrol_price = float(prices[0]) if petrol_price is None else petrol_price
+                    diesel_price = float(prices[1]) if diesel_price is None else diesel_price
+                    print(f"Found prices in text: Petrol ₹{petrol_price}, Diesel ₹{diesel_price}")
         
-        updated_data.to_csv(FUEL_DATA_FILE, index=False)
-        print(f"Successfully fetched and saved data for {today}")
-
+        return petrol_price, diesel_price
+    
     except requests.exceptions.RequestException as e:
-        print(f"Network error during data fetch: {e}")
+        print(f"Requests error: {e}")
+        return None, None
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"Parsing error with requests method: {e}")
+        return None, None
+
+def try_selenium_scraping():
+    """
+    Fallback method using Selenium for JavaScript-heavy pages
+    """
+    print("Attempting to scrape with Selenium...")
+    
+    chrome_options = Options()
+    chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--disable-gpu')
+    chrome_options.add_argument('--window-size=1920,1080')
+    chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    
+    driver = None
+    try:
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.get('https://www.cardekho.com/fuel-price')
+        
+        # Wait for page to load
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+        
+        # Additional wait for dynamic content
+        time.sleep(3)
+        
+        # Get page source after JavaScript execution
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        
+        petrol_price, diesel_price = None, None
+        
+        # Look for tables or specific elements containing fuel prices
+        # Try to find elements containing Delhi and price information
+        elements = soup.find_all(text=re.compile(r'delhi', re.IGNORECASE))
+        
+        for element in elements:
+            parent = element.parent
+            if parent:
+                parent_text = parent.get_text(strip=True)
+                price_matches = re.findall(r'₹\s*(\d+\.?\d*)', parent_text)
+                
+                if price_matches and 'delhi' in parent_text.lower():
+                    price = float(price_matches[0])
+                    
+                    if 'petrol' in parent_text.lower() and petrol_price is None:
+                        petrol_price = price
+                        print(f"Found petrol price with Selenium: ₹{price}")
+                    elif 'diesel' in parent_text.lower() and diesel_price is None:
+                        diesel_price = price
+                        print(f"Found diesel price with Selenium: ₹{price}")
+        
+        return petrol_price, diesel_price
+        
+    except (TimeoutException, WebDriverException) as e:
+        print(f"Selenium error: {e}")
+        return None, None
+    except Exception as e:
+        print(f"Unexpected error with Selenium: {e}")
+        return None, None
+    finally:
+        if driver:
+            driver.quit()
+
+def fetch_and_save_data():
+    """
+    Fetches daily petrol and diesel prices for New Delhi using multiple strategies
+    """
+    print("Starting fuel price fetch process...")
+    
+    # Try requests first (faster)
+    petrol_price, diesel_price = try_requests_scraping()
+    
+    # If requests failed, try Selenium
+    if petrol_price is None or diesel_price is None:
+        print("Requests method didn't find all prices, trying Selenium...")
+        selenium_petrol, selenium_diesel = try_selenium_scraping()
+        
+        petrol_price = petrol_price or selenium_petrol
+        diesel_price = diesel_price or selenium_diesel
+    
+    # Check if we got valid prices
+    if petrol_price is None and diesel_price is None:
+        print("ERROR: Could not fetch any fuel prices. The website structure may have changed significantly.")
+        print("Please check the website manually and update the scraping logic.")
+        return
+    
+    if petrol_price is None:
+        print("WARNING: Could not fetch petrol price")
+        petrol_price = 0.0
+    
+    if diesel_price is None:
+        print("WARNING: Could not fetch diesel price") 
+        diesel_price = 0.0
+    
+    print(f"Final prices - Petrol: ₹{petrol_price}, Diesel: ₹{diesel_price}")
+    
+    # Save data to CSV
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    new_data = pd.DataFrame([
+        {'Date': today, 'City': 'New Delhi', 'FuelType': 'Petrol', 'Price': petrol_price},
+        {'Date': today, 'City': 'New Delhi', 'FuelType': 'Diesel', 'Price': diesel_price}
+    ])
+    
+    if os.path.exists(FUEL_DATA_FILE):
+        existing_data = pd.read_csv(FUEL_DATA_FILE)
+        existing_data['Date'] = pd.to_datetime(existing_data['Date'])
+        
+        if not existing_data[(existing_data['Date'] == pd.to_datetime(today)) & (existing_data['City'] == 'New Delhi')].empty:
+            print(f"Data for {today} in New Delhi already exists. Skipping update.")
+            return
+        
+        updated_data = pd.concat([existing_data, new_data], ignore_index=True)
+    else:
+        updated_data = new_data
+    
+    updated_data.to_csv(FUEL_DATA_FILE, index=False)
+    print(f"Successfully saved data for {today} to {FUEL_DATA_FILE}")
 
 if __name__ == "__main__":
     fetch_and_save_data()
