@@ -1,11 +1,10 @@
-# .github/workflows/daily_update.yml
 name: Daily Fuel Price Update
 
 on:
   schedule:
     # Runs at 00:00 UTC daily. This translates to 5:30 AM IST (Indian Standard Time)
     # due to UTC+5:30 offset. Adjust if you need a different local time.
-    - cron: '0 0 * * *' 
+    - cron: '0 0 * * *'
   workflow_dispatch: # Allows manual triggering of the workflow from GitHub UI
 
 jobs:
@@ -16,7 +15,7 @@ jobs:
 
     steps:
     - name: Checkout repository # Step to get your code from the repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up Python # Step to set up the Python environment
       uses: actions/setup-python@v4
@@ -29,14 +28,11 @@ jobs:
     - name: Run data fetch and update script # Execute your Python script to fetch and save data
       run: python fetch_fuel_data.py
 
-    - name: Commit and push changes # Commit the updated fuel_prices.csv back to the repository
-      run: |
-        git config user.name 'github-actions[bot]' # Configure Git user for the commit
-        git config user.email 'github-actions[bot]@users.noreply.github.com'
-        git add fuel_prices.csv # Stage the updated CSV file
-        # Check if there are any changes to commit before attempting to commit
-        git diff --quiet --exit-code || git commit -m "Automated daily fuel price update"
-        git push # Push the changes to the remote repository
-        # If fetch_fuel_data.py needed any API keys, you would define them here as GitHub Secrets:
-        # env:
-        #   API_KEY: ${{ secrets.YOUR_API_KEY }}
+    - name: Commit and push changes
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: 'Automated daily fuel price update'
+        file_pattern: 'fuel_prices.csv'
+        commit_user_name: 'github-actions[bot]'
+        commit_user_email: 'github-actions[bot]@users.noreply.github.com'
+        skip_dirty_check: false
