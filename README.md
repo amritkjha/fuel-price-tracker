@@ -1,5 +1,7 @@
 # ⛽ Local Fuel Price Tracker & Analyzer
 
+<img width="1470" height="921" alt="Screenshot 2025-07-22 at 6 34 08 PM" src="https://github.com/user-attachments/assets/27c5b3aa-28d5-437d-93b9-798e9d7ae4c6" />
+
 This project is a Python-based web application designed to help users track daily petrol and diesel prices for New Delhi (and easily extensible to other cities), analyze trends, and receive data-driven suggestions for optimal refueling times. The application leverages web scraping for data collection, a Streamlit interface for visualization, and GitHub Actions for automated daily updates and continuous deployment.
 
 ## ✨ Live Demo
