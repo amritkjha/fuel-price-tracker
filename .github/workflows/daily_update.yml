@@ -1,34 +1,72 @@
+
 name: Daily Fuel Price Update
 
 on:
   schedule:
-    # Runs at 00:00 UTC daily. This translates to 5:30 AM IST (Indian Standard Time)
-    # due to UTC+5:30 offset. Adjust if you need a different local time.
-    - cron: '0 0 * * *'
-  workflow_dispatch: # Allows manual triggering of the workflow from GitHub UI
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   update_data:
-    runs-on: ubuntu-latest # The type of runner that the job will run on
+    runs-on: ubuntu-latest
     permissions:
-      contents: write # Grant write permission to the GITHUB_TOKEN for this job
+      contents: write
 
     steps:
-    - name: Checkout repository # Step to get your code from the repository
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up Python # Step to set up the Python environment
+    - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9' # Specify the Python version to use
+        python-version: '3.9'
 
-    - name: Install dependencies # Step to install Python packages listed in requirements.txt
+    - name: Check update schedule
+      id: schedule_check
+      run: |
+        python - <<'PY'
+        import random
+        import os
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+
+        if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+            should_run = True
+        else:
+            ist_now = datetime.now(timezone.utc).astimezone(
+                ZoneInfo("Asia/Kolkata")
+            )
+
+            rng = random.Random(ist_now.date().isoformat())
+
+            update_count = rng.choices(
+                [1, 2, 3, 4],
+                weights=[40, 40, 15, 5],
+                k=1
+            )[0]
+
+            selected_hours = sorted(
+                rng.sample(range(6, 24), update_count)
+            )
+
+            should_run = ist_now.hour in selected_hours
+
+            print(f"Selected update hours (IST): {selected_hours}")
+
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"should_run={str(should_run).lower()}\n")
+        PY
+
+    - name: Install dependencies
+      if: steps.schedule_check.outputs.should_run == 'true'
       run: pip install -r requirements.txt
 
-    - name: Run data fetch and update script # Execute your Python script to fetch and save data
+    - name: Run data fetch and update script
+      if: steps.schedule_check.outputs.should_run == 'true'
       run: python fetch_fuel_data.py
 
     - name: Commit and push changes
+      if: steps.schedule_check.outputs.should_run == 'true'
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: 'Automated daily fuel price update'
